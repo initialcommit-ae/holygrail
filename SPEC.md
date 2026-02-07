@@ -1,4 +1,4 @@
-# SaaSv — Complete Product & Technical Specification
+# MeshAI — Complete Product & Technical Specification
 ### Autonomous Market Intelligence
 
 **Version:** 1.0
@@ -33,9 +33,9 @@ The real problem isn't "surveys are expensive" — it's that **the relationship 
 
 ## Part 2: The Product
 
-### 2.1 What SaaSv Is
+### 2.1 What MeshAI Is
 
-SaaSv is an autonomous market intelligence system. A business describes a decision they're trying to make. The system figures out what it needs to learn from which people, conducts those conversations via WhatsApp, and delivers actionable intelligence — not raw data, not bar charts, but the kind of synthesized, defensible insight that a consultancy would deliver.
+MeshAI is an autonomous market intelligence system. A business describes a decision they're trying to make. The system figures out what it needs to learn from which people, conducts those conversations via WhatsApp, and delivers actionable intelligence — not raw data, not bar charts, but the kind of synthesized, defensible insight that a consultancy would deliver.
 
 ### 2.2 The Two Sides
 
@@ -326,7 +326,7 @@ Business receives brief + queryable data layer
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                       SaaSv PLATFORM                          │
+│                       MeshAI PLATFORM                          │
 │                                                              │
 │  ┌────────────┐   ┌────────────┐   ┌────────────┐          │
 │  │  RESEARCH   │──▶│   FIELD    │──▶│  ANALYST   │          │
@@ -634,14 +634,14 @@ The platform pays people to participate. Some studies pay more than others. This
 ## Part 11: Economic Model
 
 ```
-Business pays per study → SaaSv takes margin → Respondents compensated per conversation
+Business pays per study → MeshAI takes margin → Respondents compensated per conversation
 ```
 
 **Business pricing** is outcome-based, not per-message. Factors: study type, sample size, targeting specificity, turnaround time.
 
 **Respondent compensation** scales with effort and expertise. Quick Pulse < Standard < Deep Dive. Professional expertise commands premium. High reliability scores unlock premium opportunities.
 
-**The margin** funds the intelligence layer. The business pays far less than a consultancy. The respondent earns fair compensation. SaaSv's margin is the arbitrage on automating expensive human expertise.
+**The margin** funds the intelligence layer. The business pays far less than a consultancy. The respondent earns fair compensation. MeshAI's margin is the arbitrage on automating expensive human expertise.
 
 ---
 
@@ -730,10 +730,10 @@ The cold start: seed the respondent pool at universities (high density, low cost
 
 ## Part 16: What This Is Not
 
-**This is not a survey platform.** Surveys compress human experience into predefined boxes. SaaSv extracts insight through conversation. The Research Designer produces information objectives, not questionnaires. The Field Agent has a checklist, not a script.
+**This is not a survey platform.** Surveys compress human experience into predefined boxes. MeshAI extracts insight through conversation. The Research Designer produces information objectives, not questionnaires. The Field Agent has a checklist, not a script.
 
 **This is not a chatbot.** The Field Agent is an adaptive interviewer that uses professional qualitative research techniques — probing, laddering, narrative elicitation, rapport building. The difference: a chatbot responds. An interviewer listens.
 
 **This is not a data dashboard.** The Analyst produces a synthesized intelligence brief with findings, confidence levels, tensions, and recommendations. Not bar charts. Not word clouds. The kind of deliverable a senior consultant would produce.
 
-The relationship between the quality of human insight and the cost to obtain it has always been linear. SaaSv breaks that relationship. That's the product.
+The relationship between the quality of human insight and the cost to obtain it has always been linear. MeshAI breaks that relationship. That's the product.
