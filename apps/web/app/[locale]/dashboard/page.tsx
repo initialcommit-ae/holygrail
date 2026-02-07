@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import Link from "next/link";
+import { Link } from "@/i18n/routing";
 import { ChatInterface } from "@/components/dashboard/ChatInterface";
 import { DemographicsSummary } from "@/components/dashboard/DemographicsSummary";
 import { RespondentMatcher } from "@/components/dashboard/RespondentMatcher";
