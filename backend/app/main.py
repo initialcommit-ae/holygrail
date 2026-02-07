@@ -1,5 +1,6 @@
 import sys
 import time
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,39 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from app.config import WHATSAPP_TO  # noqa: E402
+from app.conversation_agent import compose_next_message_sync  # noqa: E402
 from app.models import StartRequest  # noqa: E402
 from app.storage import load_state, new_state, save_state, touch_updated_at  # noqa: E402
 from app.twilio_client import send_whatsapp  # noqa: E402
 
 
 app = FastAPI()
+logger = logging.getLogger("backend.whatsapp_survey")
+
+
+def _safe_send(text: str) -> None:
+    try:
+        sid = send_whatsapp(WHATSAPP_TO, text)
+        logger.info("Sent WhatsApp message sid=%s", sid)
+    except Exception:
+        # Twilio errors will show up here (bad creds, invalid From, sandbox not joined, etc.)
+        logger.exception("Failed to send WhatsApp message")
+
+
+def _send_next_message(
+    *,
+    state: dict[str, Any],
+    next_question: str,
+    last_question: str | None,
+    last_answer: str | None,
+) -> None:
+    msg = compose_next_message_sync(
+        last_question=last_question,
+        last_answer=last_answer,
+        next_question=next_question,
+        answers_so_far=state.get("answers") if isinstance(state.get("answers"), list) else [],
+    )
+    _safe_send(msg)
 
 
 @app.post("/start")
@@ -37,7 +65,12 @@ async def start(req: StartRequest, background: BackgroundTasks) -> dict[str, Any
     save_state(state)
 
     def kickoff() -> None:
-        send_whatsapp(WHATSAPP_TO, questions[0])
+        _send_next_message(
+            state=state,
+            next_question=questions[0],
+            last_question=None,
+            last_answer=None,
+        )
 
     background.add_task(kickoff)
     return {"ok": True, "sent_to": WHATSAPP_TO, "question_count": len(questions)}
@@ -57,22 +90,22 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
 
     # Ignore messages not from the hardcoded user.
     if from_user != WHATSAPP_TO:
-        return PlainTextResponse("ignored", status_code=200)
+        return PlainTextResponse("", status_code=200)
 
     state = load_state()
     if not state or state.get("status") != "active":
 
         def no_active() -> None:
-            send_whatsapp(WHATSAPP_TO, "No active survey right now.")
+            _safe_send("No active survey right now.")
 
         background.add_task(no_active)
-        return PlainTextResponse("ok", status_code=200)
+        return PlainTextResponse("", status_code=200)
 
     # Idempotency: Twilio may resend webhooks.
     if message_sid:
         processed = state.get("processed_message_sids") or []
         if message_sid in processed:
-            return PlainTextResponse("ok", status_code=200)
+            return PlainTextResponse("", status_code=200)
         processed.append(message_sid)
         state["processed_message_sids"] = processed
 
@@ -83,16 +116,18 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
         save_state(state)
 
         def end_msg() -> None:
-            send_whatsapp(WHATSAPP_TO, "Understood. Ending the survey now. Thank you for your time.")
+            _safe_send("Understood. Ending the survey now. Thank you for your time.")
 
         background.add_task(end_msg)
-        return PlainTextResponse("ok", status_code=200)
+        return PlainTextResponse("", status_code=200)
 
     idx = state.get("index", 0)
     questions = state.get("questions") or []
 
     # Save answer for current question (idx points to the question last asked).
     if isinstance(idx, int) and 0 <= idx < len(questions):
+        last_question = questions[idx]
+        last_answer = body
         answers = state.get("answers")
         if not isinstance(answers, list):
             answers = []
@@ -102,7 +137,7 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
         state["status"] = "ended"
         touch_updated_at(state)
         save_state(state)
-        return PlainTextResponse("ok", status_code=200)
+        return PlainTextResponse("", status_code=200)
 
     # Advance index and decide next step.
     state["index"] = idx + 1
@@ -114,10 +149,10 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
         save_state(state)
 
         def done_msg() -> None:
-            send_whatsapp(WHATSAPP_TO, "Thank you. The survey is complete.")
+            _safe_send("Thank you. The survey is complete.")
 
         background.add_task(done_msg)
-        return PlainTextResponse("ok", status_code=200)
+        return PlainTextResponse("", status_code=200)
 
     touch_updated_at(state)
     save_state(state)
@@ -125,10 +160,15 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
     next_q = questions[idx]
 
     def ask_next() -> None:
-        send_whatsapp(WHATSAPP_TO, next_q)
+        _send_next_message(
+            state=state,
+            next_question=next_q,
+            last_question=last_question,
+            last_answer=last_answer,
+        )
 
     background.add_task(ask_next)
-    return PlainTextResponse("ok", status_code=200)
+    return PlainTextResponse("", status_code=200)
 
 
 @app.get("/state")

@@ -4,4 +4,6 @@ twilio
 python-multipart
 pydantic
 python-dotenv
+pydantic-ai
+google-genai
 

@@ -4,6 +4,7 @@ This backend runs a simple WhatsApp “survey bot”:
 
 - `POST /start` accepts a list of questions and sends the first question via Twilio WhatsApp.
 - Twilio calls `POST /twilio/inbound` for each incoming reply; the backend stores answers in a JSON file and sends the next question.
+- Optionally, an AI agent rewrites each question to sound more conversational before sending.
 
 ## Setup
 
@@ -22,11 +23,14 @@ This project will auto-load `backend/.env` if present (recommended). You can als
 
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
-- `TWILIO_WHATSAPP_FROM` (e.g. `whatsapp:+14155238886` or your approved sender)
+- `TWILIO_WHATSAPP_FROM` (**must** be a Twilio WhatsApp-enabled sender)
+  - Twilio WhatsApp Sandbox: `whatsapp:+14155238886`
+  - Or your approved Twilio WhatsApp sender (not your personal phone number)
 
 Optional:
 
 - `SURVEY_STATE_PATH` (default `survey_state.json`)
+- `GEMINI_API_KEY` (enables AI question rewriting using `gemini-2.5-flash`)
 
 ### 3) Hardcode the WhatsApp recipient number
 
@@ -63,6 +67,12 @@ ngrok http 8000
 Then set Twilio webhook to:
 
 - `https://<your-ngrok-domain>/twilio/inbound`
+
+## Common “message not received” causes
+
+- `TWILIO_WHATSAPP_FROM` is wrong (it must be the Twilio sandbox number or an approved Twilio WhatsApp sender)
+- If using the sandbox: your WhatsApp number must first send the “join <code>” message to the sandbox to opt-in
+- Twilio Console → Monitor → Logs → Messaging shows an error for the attempted send
 
 ## Endpoints
 

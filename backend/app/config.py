@@ -14,6 +14,11 @@ WHATSAPP_TO = "whatsapp:+971543856026"  # TODO: replace with your WhatsApp numbe
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(_BACKEND_DIR / ".env")
 
+# Gemini / Google API key mapping for PydanticAI (expects GOOGLE_API_KEY for google-gla)
+_gemini_api_key = os.environ.get("GEMINI_API_KEY")
+if _gemini_api_key and not os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GOOGLE_API_KEY"] = _gemini_api_key
+
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
