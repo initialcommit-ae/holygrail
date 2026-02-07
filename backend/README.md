@@ -82,6 +82,8 @@ Then set Twilio webhook to:
   - Twilio form fields: `From`, `Body`, `MessageSid`
 - `GET /state`
   - Returns the current JSON state (or `{ "status": "none" }`)
+- `GET /analyze`
+  - Generates `{ tsx, data }` for a sandboxed React analytics report (requires `GEMINI_API_KEY`)
 
 ## Smoke test checklist
 

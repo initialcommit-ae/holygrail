@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
 # Allow running either as a package (recommended):
@@ -19,14 +20,28 @@ if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
 from app.config import WHATSAPP_TO  # noqa: E402
+from app.analytics_agent import generate_report_tsx_sync  # noqa: E402
 from app.conversation_agent import compose_next_message_sync  # noqa: E402
 from app.models import StartRequest  # noqa: E402
 from app.storage import load_state, new_state, save_state, touch_updated_at  # noqa: E402
+from app.tsx_safety import validate_generated_tsx  # noqa: E402
 from app.twilio_client import send_whatsapp  # noqa: E402
 
 
 app = FastAPI()
 logger = logging.getLogger("backend.whatsapp_survey")
+
+# Dev CORS: allow Next.js dev server to call backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 def _safe_send(text: str) -> None:
@@ -174,4 +189,52 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
 @app.get("/state")
 def get_state() -> dict[str, Any]:
     return load_state() or {"status": "none"}
+
+
+@app.get("/analyze")
+def analyze() -> dict[str, Any]:
+    """
+    Generate an AI-produced React report (TSX) for the latest survey_state.json.
+    """
+    state = load_state()
+    if not state:
+        raise HTTPException(status_code=404, detail="No survey state found")
+
+    created_at = int(state.get("created_at") or 0)
+    updated_at = int(state.get("updated_at") or 0)
+    answers = state.get("answers") if isinstance(state.get("answers"), list) else []
+    questions = state.get("questions") if isinstance(state.get("questions"), list) else []
+
+    # Basic metrics
+    total_duration_s = max(0, updated_at - created_at) if created_at and updated_at else None
+    response_times_s: list[int] = []
+    last_ts = created_at or None
+    for a in answers:
+        ts = a.get("ts")
+        if isinstance(ts, int) and last_ts:
+            response_times_s.append(max(0, ts - last_ts))
+            last_ts = ts
+        elif isinstance(ts, int):
+            last_ts = ts
+
+    metrics: dict[str, Any] = {
+        "status": state.get("status"),
+        "question_count": len(questions),
+        "answer_count": len(answers),
+        "total_duration_s": total_duration_s,
+        "response_times_s": response_times_s,
+    }
+
+    analysis_context = {"state": state, "metrics": metrics}
+
+    try:
+        tsx = generate_report_tsx_sync(analysis_context=analysis_context)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {e}")
+
+    errors = validate_generated_tsx(tsx)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Unsafe TSX rejected", "errors": errors})
+
+    return {"ok": True, "tsx": tsx, "data": analysis_context, "model": "gemini-2.5-flash"}
 
