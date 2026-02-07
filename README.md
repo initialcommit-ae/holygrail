@@ -1,4 +1,6 @@
-# Turborepo starter
+# Mesh
+
+We use lingo.dev for localization for our landing page https://holygrail-khaki.vercel.app/
 
 This Turborepo starter is maintained by the Turborepo core team.
 
