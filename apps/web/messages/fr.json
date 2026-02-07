@@ -1,0 +1,89 @@
+{
+  "common": {
+    "language": "Langue",
+    "loading": "Chargement..."
+  },
+  "navbar": {
+    "products": "Produits",
+    "solutions": "Solutions",
+    "pricing": "Tarifs",
+    "login": "Connexion",
+    "getStarted": "Commencer"
+  },
+  "hero": {
+    "title": "Enquêtes de Qualité Recherche en Minutes",
+    "subtitle": "Logiciel de recherche marketing alimenté par l'IA. Obtenez des informations en temps réel sur votre audience, minimisez les biais de recherche et automatisez la gestion des enquêtes avec l'IA.",
+    "cta": "Commencez Votre Première Enquête",
+    "learnMore": "En Savoir Plus"
+  },
+  "problem": {
+    "title": "Le Problème des Enquêtes Traditionnelles",
+    "subtitle": "La recherche marketing est défaillante. Elle est lente, coûteuse et souvent biaisée.",
+    "slowTitle": "Trop Lent",
+    "slowDescription": "Les enquêtes traditionnelles prennent des semaines ou des mois",
+    "expensiveTitle": "Trop Cher",
+    "expensiveDescription": "Les coûts élevés limitent la fréquence et la portée de la recherche",
+    "biasedTitle": "Plein de Biais",
+    "biasedDescription": "La sélection d'échantillons et la conception de questions introduisent des erreurs systématiques"
+  },
+  "howItWorks": {
+    "title": "Comment Ça Marche",
+    "subtitle": "Trois étapes simples pour obtenir des insights de qualité recherche",
+    "step1Title": "Décrivez Votre Recherche",
+    "step1Description": "Dites-nous ce que vous voulez apprendre sur votre audience",
+    "step2Title": "L'IA Génère l'Enquête",
+    "step2Description": "Notre IA crée des questions impartiales de qualité recherche",
+    "step3Title": "Obtenez des Insights Instantanés",
+    "step3Description": "Recevez des analyses et recommandations en temps réel"
+  },
+  "features": {
+    "title": "Fonctionnalités Puissantes",
+    "subtitle": "Tout ce dont vous avez besoin pour la recherche marketing moderne",
+    "aiTitle": "Génération de Questions par IA",
+    "aiDescription": "Générez automatiquement des questions d'enquête impartiales de qualité recherche",
+    "audienceTitle": "Correspondance Intelligente d'Audience",
+    "audienceDescription": "Trouvez et interrogez exactement les bons répondants pour votre recherche",
+    "analyticsTitle": "Analytiques en Temps Réel",
+    "analyticsDescription": "Obtenez des insights instantanés avec analyse et recommandations alimentées par l'IA",
+    "integrationsTitle": "Intégrations Transparentes",
+    "integrationsDescription": "Connectez-vous avec vos outils et workflows préférés"
+  },
+  "useCases": {
+    "title": "Cas d'Usage",
+    "subtitle": "Approuvé par des équipes de tous secteurs",
+    "productTitle": "Équipes Produit",
+    "productDescription": "Validez les idées et obtenez rapidement les retours des utilisateurs",
+    "marketingTitle": "Équipes Marketing",
+    "marketingDescription": "Comprenez votre audience et optimisez les campagnes",
+    "researchTitle": "Équipes Recherche",
+    "researchDescription": "Menez des études de qualité académique à grande échelle"
+  },
+  "cta": {
+    "title": "Prêt à Transformer Votre Recherche?",
+    "subtitle": "Rejoignez des milliers d'équipes utilisant MeshAI pour de meilleurs insights",
+    "button": "Commencer Gratuitement"
+  },
+  "footer": {
+    "product": "Produit",
+    "company": "Entreprise",
+    "resources": "Ressources",
+    "legal": "Légal",
+    "features": "Fonctionnalités",
+    "pricing": "Tarifs",
+    "about": "À Propos",
+    "careers": "Carrières",
+    "blog": "Blog",
+    "docs": "Documentation",
+    "privacy": "Politique de Confidentialité",
+    "terms": "Conditions d'Utilisation",
+    "allRightsReserved": "Tous droits réservés."
+  },
+  "dashboard": {
+    "title": "Tableau de Bord",
+    "createSurvey": "Créer une Nouvelle Enquête",
+    "pastSurveys": "Enquêtes Passées",
+    "conversations": "Vos Conversations",
+    "welcome": "Bienvenue sur votre tableau de bord",
+    "getStarted": "Créez votre première enquête pour commencer"
+  }
+}

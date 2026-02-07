@@ -1,0 +1,89 @@
+{
+  "common": {
+    "language": "Language",
+    "loading": "Loading..."
+  },
+  "navbar": {
+    "products": "Products",
+    "solutions": "Solutions",
+    "pricing": "Pricing",
+    "login": "Login",
+    "getStarted": "Get Started"
+  },
+  "hero": {
+    "title": "Research-Grade Surveys in Minutes",
+    "subtitle": "AI-powered market research software. Real-time insight into your audience, minimize research bias and put survey management on autopilot with AI.",
+    "cta": "Start Your First Survey",
+    "learnMore": "Learn More"
+  },
+  "problem": {
+    "title": "The Problem with Traditional Surveys",
+    "subtitle": "Market research is broken. It's slow, expensive, and often biased.",
+    "slowTitle": "Too Slow",
+    "slowDescription": "Traditional surveys take weeks or months to complete",
+    "expensiveTitle": "Too Expensive",
+    "expensiveDescription": "High costs limit the frequency and scope of research",
+    "biasedTitle": "Full of Bias",
+    "biasedDescription": "Sample selection and question design introduce systematic errors"
+  },
+  "howItWorks": {
+    "title": "How It Works",
+    "subtitle": "Three simple steps to get research-grade insights",
+    "step1Title": "Describe Your Research",
+    "step1Description": "Tell us what you want to learn about your audience",
+    "step2Title": "AI Generates Survey",
+    "step2Description": "Our AI creates unbiased, research-grade questions",
+    "step3Title": "Get Instant Insights",
+    "step3Description": "Receive analysis and recommendations in real-time"
+  },
+  "features": {
+    "title": "Powerful Features",
+    "subtitle": "Everything you need for modern market research",
+    "aiTitle": "AI-Powered Question Generation",
+    "aiDescription": "Automatically generate unbiased, research-grade survey questions",
+    "audienceTitle": "Smart Audience Matching",
+    "audienceDescription": "Find and survey exactly the right respondents for your research",
+    "analyticsTitle": "Real-Time Analytics",
+    "analyticsDescription": "Get instant insights with AI-powered analysis and recommendations",
+    "integrationsTitle": "Seamless Integrations",
+    "integrationsDescription": "Connect with your favorite tools and workflows"
+  },
+  "useCases": {
+    "title": "Use Cases",
+    "subtitle": "Trusted by teams across industries",
+    "productTitle": "Product Teams",
+    "productDescription": "Validate ideas and get user feedback fast",
+    "marketingTitle": "Marketing Teams",
+    "marketingDescription": "Understand your audience and optimize campaigns",
+    "researchTitle": "Research Teams",
+    "researchDescription": "Conduct academic-grade studies at scale"
+  },
+  "cta": {
+    "title": "Ready to Transform Your Research?",
+    "subtitle": "Join thousands of teams using MeshAI for better insights",
+    "button": "Get Started Free"
+  },
+  "footer": {
+    "product": "Product",
+    "company": "Company",
+    "resources": "Resources",
+    "legal": "Legal",
+    "features": "Features",
+    "pricing": "Pricing",
+    "about": "About",
+    "careers": "Careers",
+    "blog": "Blog",
+    "docs": "Documentation",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "allRightsReserved": "All rights reserved."
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "createSurvey": "Create New Survey",
+    "pastSurveys": "Past Surveys",
+    "conversations": "Your Conversations",
+    "welcome": "Welcome to your dashboard",
+    "getStarted": "Create your first survey to get started"
+  }
+}

@@ -1,4 +1,10 @@
+'use client';
+
+import { useTranslations } from 'next-intl';
+import Link from 'next/link';
+
 export default function Hero() {
+  const t = useTranslations('hero');
   return (
     <section
       data-theme="light"
@@ -12,23 +18,18 @@ export default function Hero() {
               AI-Powered Market Research Software
             </div>
             <h1 className="text-[64px] leading-[1.1] text-slate-900 mb-10 light-heading">
-              With{" "}
-              <span className="inline-block w-10 h-10 bg-black rounded-full align-middle mb-2 mx-1" />{" "}
-              MeshAi <br />
-              your research <br />
-              manages itself
+              {t('title')}
             </h1>
             <p className="text-[17px] text-slate-500 max-w-sm mb-12 leading-relaxed">
-              Real-time insight into your audience, minimize research bias and
-              put survey management on autopilot with AI.
+              {t('subtitle')}
             </p>
             <div className="flex items-center gap-4">
-              <button className="bg-black text-white px-10 py-4 rounded-full text-[15px] hover:bg-slate-800 transition-all">
-                Book a meeting
-              </button>
-              <button className="bg-[#f2f4f7] text-slate-900 px-10 py-4 rounded-full text-[15px] hover:bg-slate-200 transition-all">
-                Start your free trial
-              </button>
+              <Link href="/dashboard" className="bg-black text-white px-10 py-4 rounded-full text-[15px] hover:bg-slate-800 transition-all">
+                {t('cta')}
+              </Link>
+              <Link href="/dashboard" className="bg-[#f2f4f7] text-slate-900 px-10 py-4 rounded-full text-[15px] hover:bg-slate-200 transition-all">
+                {t('learnMore')}
+              </Link>
             </div>
 
             <div className="mt-24">

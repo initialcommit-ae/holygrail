@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslations } from 'next-intl';
+import Link from 'next/link';
+import LanguageSwitcher from "../../app/components/LanguageSwitcher/LanguageSwitcher";
 
 export default function Navbar() {
+  const t = useTranslations('navbar');
   const [scrolled, setScrolled] = useState(false);
   const [themeDark, setThemeDark] = useState(false);
 
@@ -53,50 +57,30 @@ export default function Navbar() {
           </div>
           <div className="hidden lg:flex items-center gap-8 text-[13px] opacity-70">
             <a href="#" className="hover:opacity-100 transition-all">
-              Products
+              {t('products')}
             </a>
             <a href="#" className="hover:opacity-100 transition-all">
-              Integrations
+              {t('solutions')}
             </a>
             <a href="#" className="hover:opacity-100 transition-all">
-              Customers
-            </a>
-            <a href="#" className="hover:opacity-100 transition-all">
-              Pricing
-            </a>
-            <a href="#" className="hover:opacity-100 transition-all">
-              Resources
+              {t('pricing')}
             </a>
           </div>
         </div>
 
         <div className="flex items-center gap-6 text-[13px]">
-          <div className="flex items-center gap-1 opacity-70">
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1}
-                d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-              />
-            </svg>
-            en
-          </div>
-          <button className="opacity-70 hover:opacity-100">Login</button>
-          <button
+          <LanguageSwitcher />
+          <Link href="/dashboard" className="opacity-70 hover:opacity-100">{t('login')}</Link>
+          <Link
+            href="/dashboard"
             className={`px-6 py-2.5 rounded-full transition-all duration-700 ${
               themeDark
                 ? "bg-white text-black hover:bg-slate-200"
                 : "bg-black text-white hover:bg-slate-800"
             }`}
           >
-            Book a demo
-          </button>
+            {t('getStarted')}
+          </Link>
         </div>
       </div>
     </nav>

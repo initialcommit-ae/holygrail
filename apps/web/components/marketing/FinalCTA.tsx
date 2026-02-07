@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function FinalCTA() {
   return (
     <section
@@ -15,9 +17,9 @@ export default function FinalCTA() {
           Join the platform that makes professional market research as easy as
           sending a Slack message.
         </p>
-        <button className="bg-black text-white px-14 py-5 rounded-full text-lg hover:bg-slate-800 transition-all shadow-2xl shadow-black/5 active:scale-95">
+        <Link href="/dashboard" className="inline-block bg-black text-white px-14 py-5 rounded-full text-lg hover:bg-slate-800 transition-all shadow-2xl shadow-black/5 active:scale-95">
           Launch My Campaign
-        </button>
+        </Link>
         <div className="mt-14 flex justify-center gap-10 text-[11px] text-slate-400 uppercase tracking-widest font-mono">
           <span className="flex items-center gap-2">
             <div className="w-1 h-1 bg-emerald-400 rounded-full" /> No credit

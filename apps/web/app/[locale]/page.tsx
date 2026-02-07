@@ -8,7 +8,7 @@ import FinalCTA from "../../components/marketing/FinalCTA";
 import Footer from "../../components/marketing/Footer";
 import ThemeRevealProvider from "../../components/marketing/ThemeRevealProvider";
 
-export default function MarketingPage() {
+export default function Home() {
   return (
     <ThemeRevealProvider>
       <div className="min-h-screen flex flex-col selection:bg-black selection:text-white">
