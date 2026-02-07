@@ -1,0 +1,2 @@
+"""Holygrail backend (FastAPI)."""
+
