@@ -1,0 +1,7 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+survey_state.json
+survey_state.json.tmp
+.git
