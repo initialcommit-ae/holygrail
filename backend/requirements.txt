@@ -6,4 +6,5 @@ pydantic
 python-dotenv
 pydantic-ai
 google-genai
+asyncpg
 

@@ -4,6 +4,49 @@ We use lingo.dev for localization for our landing page https://holygrail-khaki.v
 
 This Turborepo starter is maintained by the Turborepo core team.
 
+## Future features
+
+
+### supply
+
+don't waste user's time
+
+Send location pin of you neighborhood?
+
+how do we make the data valuable to enterprises?
+
+voice messages
+
+feels like your friend asking for advice. you talk about yourself and get paid for it. you are already on your phone all day, why not make a little money.
+
+we need to keep the campaigns flowing to make our users happy
+
+
+### demand
+
+needs to feel expert level at every step
+
+cool screen for collecting results, show accepted bounties
+
+create a useful analytics, focus on delivering useful 
+
+research brief
+- frame as what do you want to learn?
+
+set reward: buy them lunch, amazon gift card, cash, merch, api credits, whatever they want
+- it all a link that the user can click and use their external auth data
+
+## crustdata
+
+lets set up a research brief for them and an account
+
+give them the option to use the research brief or another one and give them a coupon code for 100% off/or we hard code in participation 
+
+
+
+c0mpiled wants to know how you feel about the event
+
+
 ## Using this example
 
 Run the following command:

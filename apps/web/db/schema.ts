@@ -1,37 +1,181 @@
-import { pgTable, uuid, text, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  jsonb,
+  timestamp,
+  integer,
+  uniqueIndex,
+  index,
+} from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-export const surveys = pgTable('surveys', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  researchQuestion: text('research_question').notNull(),
-  targetProfile: text('target_profile').notNull(),
-  questions: jsonb('questions').notNull().$type<string[]>(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+// --- Users ---
 
-export const responses = pgTable('responses', {
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    phoneNumber: text('phone_number').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex('uq_users_phone').on(table.phoneNumber)],
+);
+
+// --- Campaigns ---
+
+export const campaigns = pgTable('campaigns', {
   id: uuid('id').primaryKey().defaultRandom(),
-  surveyId: uuid('survey_id')
-    .references(() => surveys.id, { onDelete: 'cascade' })
+  name: text('name').notNull(),
+  researchBrief: text('research_brief').notNull(),
+  extractionSchema: jsonb('extraction_schema').notNull().$type<
+    Record<string, { type: string; description: string }>
+  >(),
+  systemPromptOverride: text('system_prompt_override'),
+  phoneNumbers: text('phone_numbers').array().notNull(),
+  status: text('status').notNull().default('draft'),
+  totalConversations: integer('total_conversations').notNull().default(0),
+  completedConversations: integer('completed_conversations')
+    .notNull()
+    .default(0),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
     .notNull(),
-  data: jsonb('data').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
 });
 
-// Relations
-export const surveysRelations = relations(surveys, ({ many }) => ({
-  responses: many(responses),
+// --- Conversations ---
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    campaignId: uuid('campaign_id')
+      .references(() => campaigns.id, { onDelete: 'cascade' })
+      .notNull(),
+    userId: uuid('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    phoneNumber: text('phone_number').notNull(),
+    status: text('status').notNull().default('pending'),
+    extractedData: jsonb('extracted_data')
+      .default({})
+      .$type<Record<string, unknown>>(),
+    messageCount: integer('message_count').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('uq_campaign_phone').on(table.campaignId, table.phoneNumber),
+    index('idx_conversations_phone').on(table.phoneNumber),
+    index('idx_conversations_status').on(table.campaignId, table.status),
+  ],
+);
+
+// --- Messages ---
+
+export const messages = pgTable(
+  'messages',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .references(() => conversations.id, { onDelete: 'cascade' })
+      .notNull(),
+    sender: text('sender').notNull(), // 'agent' | 'user'
+    content: text('content').notNull(),
+    twilioSid: text('twilio_sid'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_messages_conversation').on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+// --- Outreach Queue ---
+
+export const outreachQueue = pgTable(
+  'outreach_queue',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id')
+      .references(() => conversations.id, { onDelete: 'cascade' })
+      .notNull(),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }).notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    status: text('status').notNull().default('pending'),
+    error: text('error'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index('idx_outreach_pending').on(table.status, table.scheduledAt),
+  ],
+);
+
+// --- Relations ---
+
+export const usersRelations = relations(users, ({ many }) => ({
+  conversations: many(conversations),
 }));
 
-export const responsesRelations = relations(responses, ({ one }) => ({
-  survey: one(surveys, {
-    fields: [responses.surveyId],
-    references: [surveys.id],
+export const campaignsRelations = relations(campaigns, ({ many }) => ({
+  conversations: many(conversations),
+}));
+
+export const conversationsRelations = relations(
+  conversations,
+  ({ one, many }) => ({
+    campaign: one(campaigns, {
+      fields: [conversations.campaignId],
+      references: [campaigns.id],
+    }),
+    user: one(users, {
+      fields: [conversations.userId],
+      references: [users.id],
+    }),
+    messages: many(messages),
+    outreachQueue: many(outreachQueue),
+  }),
+);
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
   }),
 }));
 
-// Types
-export type Survey = typeof surveys.$inferSelect;
-export type NewSurvey = typeof surveys.$inferInsert;
-export type Response = typeof responses.$inferSelect;
-export type NewResponse = typeof responses.$inferInsert;
+export const outreachQueueRelations = relations(outreachQueue, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [outreachQueue.conversationId],
+    references: [conversations.id],
+  }),
+}));
+
+// --- Types ---
+
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
+export type Campaign = typeof campaigns.$inferSelect;
+export type NewCampaign = typeof campaigns.$inferInsert;
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;
+export type OutreachQueueItem = typeof outreachQueue.$inferSelect;
+export type NewOutreachQueueItem = typeof outreachQueue.$inferInsert;
