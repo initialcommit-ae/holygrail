@@ -8,7 +8,7 @@ import {
   uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
 // --- Users ---
 
@@ -17,6 +17,11 @@ export const users = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     phoneNumber: text('phone_number').notNull(),
+    status: text('status').notNull().default('new'),
+    city: text('city'),
+    neighborhood: text('neighborhood'),
+    ageRange: text('age_range'),
+    gender: text('gender'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -34,7 +39,10 @@ export const campaigns = pgTable('campaigns', {
     Record<string, { type: string; description: string }>
   >(),
   systemPromptOverride: text('system_prompt_override'),
-  phoneNumbers: text('phone_numbers').array().notNull(),
+  rewardText: text('reward_text'),
+  rewardLink: text('reward_link'),
+  phoneNumbers: text('phone_numbers').array(),
+  targeting: jsonb('targeting').$type<Record<string, unknown> | null>(),
   status: text('status').notNull().default('draft'),
   totalConversations: integer('total_conversations').notNull().default(0),
   completedConversations: integer('completed_conversations')
@@ -55,8 +63,7 @@ export const conversations = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     campaignId: uuid('campaign_id')
-      .references(() => campaigns.id, { onDelete: 'cascade' })
-      .notNull(),
+      .references(() => campaigns.id, { onDelete: 'cascade' }),
     userId: uuid('user_id')
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
@@ -75,7 +82,9 @@ export const conversations = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
   },
   (table) => [
-    uniqueIndex('uq_campaign_phone').on(table.campaignId, table.phoneNumber),
+    uniqueIndex('uq_campaign_phone')
+      .on(table.campaignId, table.phoneNumber)
+      .where(sql`campaign_id IS NOT NULL`),
     index('idx_conversations_phone').on(table.phoneNumber),
     index('idx_conversations_status').on(table.campaignId, table.status),
   ],
@@ -102,6 +111,9 @@ export const messages = pgTable(
       table.conversationId,
       table.createdAt,
     ),
+    uniqueIndex('uq_messages_twilio_sid')
+      .on(table.twilioSid)
+      .where(sql`twilio_sid IS NOT NULL`),
   ],
 );
 

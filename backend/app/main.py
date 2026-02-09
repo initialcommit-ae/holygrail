@@ -16,8 +16,8 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
 
-from app.config import MAX_CONCURRENT_LLM_CALLS  # noqa: E402
-from app.conversation_agent import get_agent_response  # noqa: E402
+from app.config import MAX_CONCURRENT_LLM_CALLS, OUTREACH_RATE_PER_MINUTE  # noqa: E402
+from app.conversation_agent import MeshContext, get_agent_response  # noqa: E402
 from app.db import close_pool, create_pool, get_pool  # noqa: E402
 from app.models import CreateCampaignRequest  # noqa: E402
 from app.outreach_worker import start_outreach_worker, stop_outreach_worker  # noqa: E402
@@ -29,6 +29,9 @@ logging.basicConfig(level=logging.INFO)
 _llm_semaphore: asyncio.Semaphore | None = None
 
 STOP_KEYWORDS = {"stop", "quit", "cancel", "end"}
+
+# Demographics required for "onboarded" status
+_REQUIRED_DEMOGRAPHICS = ("city", "age_range", "gender")
 
 
 @asynccontextmanager
@@ -72,8 +75,9 @@ async def create_campaign(req: CreateCampaignRequest) -> dict[str, Any]:
     row = await pool.fetchrow(
         """
         INSERT INTO campaigns (name, research_brief, extraction_schema,
-                               system_prompt_override, phone_numbers, status)
-        VALUES ($1, $2, $3, $4, $5, 'draft')
+                               system_prompt_override, phone_numbers,
+                               reward_text, reward_link, targeting, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft')
         RETURNING id, created_at
         """,
         req.name,
@@ -81,6 +85,9 @@ async def create_campaign(req: CreateCampaignRequest) -> dict[str, Any]:
         json.dumps(extraction_schema),
         req.system_prompt_override,
         req.phone_numbers,
+        req.reward_text,
+        req.reward_link,
+        json.dumps(req.targeting) if req.targeting else None,
     )
 
     return {
@@ -118,6 +125,11 @@ async def get_campaign(campaign_id: UUID) -> dict[str, Any]:
     row = await pool.fetchrow("SELECT * FROM campaigns WHERE id = $1", campaign_id)
     if not row:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    targeting = row["targeting"]
+    if isinstance(targeting, str):
+        targeting = json.loads(targeting)
+
     return {
         "id": str(row["id"]),
         "name": row["name"],
@@ -126,6 +138,9 @@ async def get_campaign(campaign_id: UUID) -> dict[str, Any]:
         if isinstance(row["extraction_schema"], str)
         else row["extraction_schema"],
         "phone_numbers": row["phone_numbers"],
+        "reward_text": row["reward_text"],
+        "reward_link": row["reward_link"],
+        "targeting": targeting,
         "status": row["status"],
         "total_conversations": row["total_conversations"],
         "completed_conversations": row["completed_conversations"],
@@ -143,23 +158,49 @@ async def launch_campaign(campaign_id: UUID) -> dict[str, Any]:
     if campaign["status"] not in ("draft", "paused"):
         raise HTTPException(status_code=400, detail=f"Cannot launch campaign with status '{campaign['status']}'")
 
-    phone_numbers = campaign["phone_numbers"]
+    phone_numbers = campaign["phone_numbers"] or []
     now = datetime.now(timezone.utc)
-    rate = 10  # messages per minute
+    rate = max(1, OUTREACH_RATE_PER_MINUTE)
     conversations_created = 0
+    reactivated_outreach = 0
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # Re-activate paused outreach in staggered order to avoid burst sends.
+            if campaign["status"] == "paused":
+                paused_rows = await conn.fetch(
+                    """
+                    SELECT oq.id
+                    FROM outreach_queue oq
+                    JOIN conversations c ON c.id = oq.conversation_id
+                    WHERE c.campaign_id = $1
+                      AND oq.status = 'paused'
+                    ORDER BY oq.scheduled_at, oq.id
+                    """,
+                    campaign_id,
+                )
+                for i, row in enumerate(paused_rows):
+                    delay_seconds = int((i * 60) / rate)
+                    await conn.execute(
+                        """
+                        UPDATE outreach_queue
+                        SET status = 'pending', scheduled_at = $2, error = NULL
+                        WHERE id = $1
+                        """,
+                        row["id"],
+                        now + timedelta(seconds=delay_seconds),
+                    )
+                reactivated_outreach = len(paused_rows)
+
             for i, phone in enumerate(phone_numbers):
-                # Stagger: 10 per minute -> each batch of 10 gets a 1-minute delay
-                delay_seconds = (i // rate) * 60 + (i % rate) * 6
+                delay_seconds = int(((reactivated_outreach + i) * 60) / rate)
                 scheduled_at = now + timedelta(seconds=delay_seconds)
 
-                # Upsert user
+                # Upsert user — preserve existing status, default 'new' for new users
                 user_row = await conn.fetchrow(
                     """
-                    INSERT INTO users (phone_number)
-                    VALUES ($1)
+                    INSERT INTO users (phone_number, status)
+                    VALUES ($1, 'new')
                     ON CONFLICT (phone_number) DO UPDATE SET phone_number = EXCLUDED.phone_number
                     RETURNING id
                     """,
@@ -171,7 +212,9 @@ async def launch_campaign(campaign_id: UUID) -> dict[str, Any]:
                     """
                     INSERT INTO conversations (campaign_id, user_id, phone_number, status)
                     VALUES ($1, $2, $3, 'pending')
-                    ON CONFLICT (campaign_id, phone_number) DO NOTHING
+                    ON CONFLICT (campaign_id, phone_number)
+                        WHERE campaign_id IS NOT NULL
+                        DO NOTHING
                     RETURNING id
                     """,
                     campaign_id,
@@ -179,7 +222,7 @@ async def launch_campaign(campaign_id: UUID) -> dict[str, Any]:
                     phone,
                 )
                 if not conv_row:
-                    continue  # Already exists
+                    continue
 
                 # Schedule outreach
                 await conn.execute(
@@ -205,11 +248,13 @@ async def launch_campaign(campaign_id: UUID) -> dict[str, Any]:
                 conversations_created,
             )
 
-    estimated_minutes = max(1, (conversations_created // rate) + 1)
+    total_scheduled = reactivated_outreach + conversations_created
+    estimated_minutes = max(1, (total_scheduled // rate) + 1)
 
     return {
         "ok": True,
         "conversations_created": conversations_created,
+        "reactivated_outreach": reactivated_outreach,
         "estimated_completion_minutes": estimated_minutes,
         "outreach_rate_per_minute": rate,
     }
@@ -228,10 +273,9 @@ async def pause_campaign(campaign_id: UUID) -> dict[str, Any]:
         "UPDATE campaigns SET status = 'paused', updated_at = NOW() WHERE id = $1",
         campaign_id,
     )
-    # Cancel pending outreach
     await pool.execute(
         """
-        UPDATE outreach_queue SET status = 'failed', error = 'campaign paused'
+        UPDATE outreach_queue SET status = 'paused'
         WHERE conversation_id IN (SELECT id FROM conversations WHERE campaign_id = $1)
           AND status = 'pending'
         """,
@@ -290,7 +334,7 @@ async def get_conversation(conversation_id: UUID) -> dict[str, Any]:
 
     return {
         "id": str(conv["id"]),
-        "campaign_id": str(conv["campaign_id"]),
+        "campaign_id": str(conv["campaign_id"]) if conv["campaign_id"] else None,
         "phone_number": conv["phone_number"],
         "status": conv["status"],
         "extracted_data": json.loads(conv["extracted_data"])
@@ -357,145 +401,350 @@ async def inbound(request: Request, background: BackgroundTasks) -> PlainTextRes
     body = str(form.get("Body") or "").strip()
     twilio_sid = str(form.get("MessageSid") or "")
 
-    # Normalize: "whatsapp:+971..." -> "+971..."
     phone = from_user.replace("whatsapp:", "")
     if not phone:
         return PlainTextResponse("", status_code=200)
 
-    # Persist message and process async — return 200 to Twilio fast
     background.add_task(_process_inbound, phone, body, twilio_sid)
     return PlainTextResponse("", status_code=200)
+
+
+# ---------------------------------------------------------------------------
+# Inbound routing — the full decision tree
+# ---------------------------------------------------------------------------
 
 
 async def _process_inbound(phone: str, body: str, twilio_sid: str) -> None:
     pool = get_pool()
 
-    # Idempotency check
+    # Idempotency: advisory lock on twilio_sid hash serializes duplicate webhooks,
+    # then check + unique index (uq_messages_twilio_sid) enforces exactly-once.
     if twilio_sid:
-        existing = await pool.fetchval(
-            "SELECT id FROM messages WHERE twilio_sid = $1", twilio_sid
-        )
-        if existing:
-            logger.info("Duplicate webhook for twilio_sid=%s, skipping", twilio_sid)
-            return
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext($1))", twilio_sid
+                )
+                existing = await conn.fetchval(
+                    "SELECT id FROM messages WHERE twilio_sid = $1", twilio_sid
+                )
+                if existing:
+                    logger.info("Duplicate webhook for twilio_sid=%s, skipping", twilio_sid)
+                    return
 
-    # Find active conversation for this phone number
+    # Step 1: Lookup user by phone
+    user = await pool.fetchrow(
+        "SELECT * FROM users WHERE phone_number = $1", phone
+    )
+
+    if not user:
+        # New user — create + start onboarding
+        user = await pool.fetchrow(
+            """
+            INSERT INTO users (phone_number, status)
+            VALUES ($1, 'new')
+            ON CONFLICT (phone_number) DO UPDATE SET phone_number = EXCLUDED.phone_number
+            RETURNING *
+            """,
+            phone,
+        )
+        conv = await _get_or_create_active_onboarding_conversation(user["id"], phone)
+        await _handle_onboarding(conv, user, phone, body, twilio_sid)
+        return
+
+    # Step 2: Find active conversation
     conv = await pool.fetchrow(
         """
         SELECT c.*, cam.research_brief, cam.extraction_schema,
-               cam.system_prompt_override, cam.status AS campaign_status
+               cam.system_prompt_override, cam.reward_text, cam.reward_link
         FROM conversations c
-        JOIN campaigns cam ON c.campaign_id = cam.id
-        WHERE c.phone_number = $1
-          AND c.status IN ('outreach_sent', 'active')
-          AND cam.status = 'active'
+        LEFT JOIN campaigns cam ON c.campaign_id = cam.id
+        WHERE c.user_id = $1
+          AND c.status IN ('active', 'bounty_sent')
         ORDER BY c.created_at DESC
         LIMIT 1
         """,
-        phone,
+        user["id"],
     )
+
     if not conv:
-        logger.info("No active conversation for phone=%s", phone)
+        # If onboarding is incomplete and no active thread exists, resume onboarding.
+        if user["status"] in ("new", "onboarding"):
+            conv = await _get_or_create_active_onboarding_conversation(user["id"], phone)
+            await _handle_onboarding(conv, user, phone, body, twilio_sid)
+        else:
+            # User is idle — general mode
+            await _handle_general(user, phone, body, twilio_sid)
         return
 
+    # Step 3: Route by conversation state
+    if conv["status"] == "bounty_sent" and conv["campaign_id"] is not None:
+        await _handle_bounty_response(conv, user, phone, body, twilio_sid)
+    elif conv["status"] == "active" and conv["campaign_id"] is not None:
+        await _handle_campaign(conv, user, phone, body, twilio_sid)
+    elif conv["status"] == "active" and conv["campaign_id"] is None:
+        await _handle_onboarding(conv, user, phone, body, twilio_sid)
+    else:
+        logger.warning("Unexpected conv state: status=%s campaign_id=%s", conv["status"], conv["campaign_id"])
+        await _handle_general(user, phone, body, twilio_sid)
+
+
+# ---------------------------------------------------------------------------
+# Handler: Onboarding
+# ---------------------------------------------------------------------------
+
+
+async def _handle_onboarding(conv, user, phone: str, body: str, twilio_sid: str) -> None:
+    pool = get_pool()
     conv_id = conv["id"]
 
-    # Advisory lock on conversation to prevent race conditions
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
-                "SELECT pg_advisory_xact_lock(hashtext($1::text))",
-                str(conv_id),
-            )
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
 
-            # Save inbound message
-            await conn.execute(
-                """
-                INSERT INTO messages (conversation_id, sender, content, twilio_sid)
-                VALUES ($1, 'user', $2, $3)
-                """,
-                conv_id,
-                body,
-                twilio_sid or None,
-            )
+            # Save inbound message (dedupe-safe on twilio_sid)
+            inserted = await _insert_inbound_user_message(conn, conv_id, body, twilio_sid)
+            if not inserted:
+                logger.info("Duplicate inbound message ignored for conversation=%s", conv_id)
+                return
 
-            # Update conversation status if it was outreach_sent
-            if conv["status"] == "outreach_sent":
+            # Update user status to onboarding if new
+            if user["status"] == "new":
                 await conn.execute(
-                    "UPDATE conversations SET status = 'active', updated_at = NOW() WHERE id = $1",
-                    conv_id,
+                    "UPDATE users SET status = 'onboarding' WHERE id = $1", user["id"]
                 )
 
             # Check stop keywords
             if body.lower().strip() in STOP_KEYWORDS:
                 await conn.execute(
-                    """
-                    UPDATE conversations
-                    SET status = 'abandoned', updated_at = NOW(), completed_at = NOW()
-                    WHERE id = $1
-                    """,
+                    "UPDATE conversations SET status = 'abandoned', updated_at = NOW(), completed_at = NOW() WHERE id = $1",
                     conv_id,
                 )
                 _safe_send(phone, "Understood — thanks for your time! Take care.")
                 return
 
-            # Load full message history
-            msg_rows = await conn.fetch(
-                """
-                SELECT sender, content FROM messages
-                WHERE conversation_id = $1
-                ORDER BY created_at
-                """,
-                conv_id,
-            )
-            conversation_history = [
-                {"sender": m["sender"], "content": m["content"]}
-                for m in msg_rows
-            ]
+            # Load conversation history
+            conversation_history = await _load_history(conn, conv_id)
 
-            # Get extraction state
-            extracted_data = conv["extracted_data"]
-            if isinstance(extracted_data, str):
-                extracted_data = json.loads(extracted_data)
-            extracted_data = extracted_data or {}
+    # Build context + call LLM
+    deps = MeshContext(
+        mode="onboarding",
+        conversation_history=conversation_history,
+        user_demographics=_user_demographics(user),
+    )
 
-            extraction_schema = conv["extraction_schema"]
-            if isinstance(extraction_schema, str):
-                extraction_schema = json.loads(extraction_schema)
+    agent_resp = await _call_llm(deps, conv_id)
+    if not agent_resp:
+        return
 
-    # Call LLM (outside transaction — this is slow)
-    assert _llm_semaphore is not None
-    async with _llm_semaphore:
-        try:
-            agent_resp = await get_agent_response(
-                research_brief=conv["research_brief"],
-                extraction_schema=extraction_schema,
-                extracted_data=extracted_data,
-                conversation_history=conversation_history,
-                system_prompt_override=conv["system_prompt_override"],
-            )
-        except Exception:
-            logger.exception("Agent failed for conversation=%s", conv_id)
-            return
-
-    # Merge extracted data
-    merged_data = {**extracted_data, **agent_resp.extracted_data_update}
-
-    # Persist agent response and update conversation
+    # Persist response + update demographics
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute(
-                "SELECT pg_advisory_xact_lock(hashtext($1::text))",
-                str(conv_id),
-            )
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
 
             await conn.execute(
-                """
-                INSERT INTO messages (conversation_id, sender, content)
-                VALUES ($1, 'agent', $2)
-                """,
-                conv_id,
-                agent_resp.message,
+                "INSERT INTO messages (conversation_id, sender, content) VALUES ($1, 'agent', $2)",
+                conv_id, agent_resp.message,
+            )
+
+            # Update demographics
+            became_onboarded = await _update_user_demographics(
+                conn, user["id"], agent_resp.user_demographics_update, user,
+            )
+
+            if agent_resp.conversation_complete:
+                await conn.execute(
+                    """
+                    UPDATE conversations
+                    SET status = 'completed', message_count = message_count + 2,
+                        updated_at = NOW(), completed_at = NOW()
+                    WHERE id = $1
+                    """,
+                    conv_id,
+                )
+                # _update_user_demographics already sets onboarded if demographics are filled.
+                # Do NOT force onboarded here — trust actual demographics, not LLM signal.
+            else:
+                await conn.execute(
+                    "UPDATE conversations SET message_count = message_count + 2, updated_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+
+    _safe_send(phone, agent_resp.message)
+
+
+# ---------------------------------------------------------------------------
+# Handler: Bounty response (accept/decline)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_bounty_response(conv, user, phone: str, body: str, twilio_sid: str) -> None:
+    pool = get_pool()
+    conv_id = conv["id"]
+    stop_requested = False
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
+
+            inserted = await _insert_inbound_user_message(conn, conv_id, body, twilio_sid)
+            if not inserted:
+                logger.info("Duplicate inbound message ignored for conversation=%s", conv_id)
+                return
+
+            # Check stop keywords
+            if body.lower().strip() in STOP_KEYWORDS:
+                await conn.execute(
+                    "UPDATE conversations SET status = 'abandoned', updated_at = NOW(), completed_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+                stop_requested = True
+            else:
+                conversation_history = await _load_history(conn, conv_id)
+
+    if stop_requested:
+        _safe_send(phone, "Understood — thanks for your time! Take care.")
+        if conv["campaign_id"]:
+            await _check_campaign_completion(conv["campaign_id"])
+        return
+
+    extraction_schema = conv["extraction_schema"]
+    if isinstance(extraction_schema, str):
+        extraction_schema = json.loads(extraction_schema)
+
+    deps = MeshContext(
+        mode="bounty",
+        conversation_history=conversation_history,
+        user_demographics=_user_demographics(user),
+        research_brief=conv["research_brief"],
+        extraction_schema=extraction_schema,
+        reward_text=conv["reward_text"],
+        reward_link=conv["reward_link"],
+    )
+
+    agent_resp = await _call_llm(deps, conv_id)
+    if not agent_resp:
+        return
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
+
+            await conn.execute(
+                "INSERT INTO messages (conversation_id, sender, content) VALUES ($1, 'agent', $2)",
+                conv_id, agent_resp.message,
+            )
+
+            if agent_resp.bounty_accepted is True:
+                # Accepted — transition to active campaign conversation
+                await conn.execute(
+                    "UPDATE conversations SET status = 'active', message_count = message_count + 2, updated_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+            elif agent_resp.bounty_accepted is False:
+                # Declined
+                await conn.execute(
+                    """
+                    UPDATE conversations
+                    SET status = 'declined', message_count = message_count + 2,
+                        updated_at = NOW(), completed_at = NOW()
+                    WHERE id = $1
+                    """,
+                    conv_id,
+                )
+            else:
+                # Ambiguous — keep bounty_sent, just update message count
+                await conn.execute(
+                    "UPDATE conversations SET message_count = message_count + 2, updated_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+
+            # Update demographics if any
+            await _update_user_demographics(
+                conn, user["id"], agent_resp.user_demographics_update, user,
+            )
+
+    _safe_send(phone, agent_resp.message)
+
+    # Check campaign completion on terminal states
+    if agent_resp.bounty_accepted is False and conv["campaign_id"]:
+        await _check_campaign_completion(conv["campaign_id"])
+
+
+# ---------------------------------------------------------------------------
+# Handler: Campaign conversation
+# ---------------------------------------------------------------------------
+
+
+async def _handle_campaign(conv, user, phone: str, body: str, twilio_sid: str) -> None:
+    pool = get_pool()
+    conv_id = conv["id"]
+    stop_requested = False
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
+
+            inserted = await _insert_inbound_user_message(conn, conv_id, body, twilio_sid)
+            if not inserted:
+                logger.info("Duplicate inbound message ignored for conversation=%s", conv_id)
+                return
+
+            # Check stop keywords
+            if body.lower().strip() in STOP_KEYWORDS:
+                await conn.execute(
+                    "UPDATE conversations SET status = 'abandoned', updated_at = NOW(), completed_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+                stop_requested = True
+            else:
+                conversation_history = await _load_history(conn, conv_id)
+
+    if stop_requested:
+        _safe_send(phone, "Understood — thanks for your time! Take care.")
+        if conv["campaign_id"]:
+            await _check_campaign_completion(conv["campaign_id"])
+        return
+
+    extracted_data = conv["extracted_data"]
+    if isinstance(extracted_data, str):
+        extracted_data = json.loads(extracted_data)
+    extracted_data = extracted_data or {}
+
+    extraction_schema = conv["extraction_schema"]
+    if isinstance(extraction_schema, str):
+        extraction_schema = json.loads(extraction_schema)
+
+    deps = MeshContext(
+        mode="campaign",
+        conversation_history=conversation_history,
+        user_demographics=_user_demographics(user),
+        research_brief=conv["research_brief"],
+        extraction_schema=extraction_schema,
+        extracted_data=extracted_data,
+        reward_text=conv["reward_text"],
+        reward_link=conv["reward_link"],
+        system_prompt_override=conv["system_prompt_override"],
+    )
+
+    agent_resp = await _call_llm(deps, conv_id)
+    if not agent_resp:
+        return
+
+    merged_data = {**extracted_data, **agent_resp.extracted_data_update}
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1::text))", str(conv_id))
+
+            await conn.execute(
+                "INSERT INTO messages (conversation_id, sender, content) VALUES ($1, 'agent', $2)",
+                conv_id, agent_resp.message,
+            )
+
+            # Update demographics if any
+            await _update_user_demographics(
+                conn, user["id"], agent_resp.user_demographics_update, user,
             )
 
             if agent_resp.conversation_complete:
@@ -530,26 +779,239 @@ async def _process_inbound(phone: str, body: str, twilio_sid: str) -> None:
                     json.dumps(merged_data),
                 )
 
-    # Send response via Twilio
     _safe_send(phone, agent_resp.message)
 
-    # Check if all conversations are completed
     if agent_resp.conversation_complete:
         await _check_campaign_completion(conv["campaign_id"])
 
 
-async def _check_campaign_completion(campaign_id: UUID) -> None:
+# ---------------------------------------------------------------------------
+# Handler: General (idle user)
+# ---------------------------------------------------------------------------
+
+
+async def _handle_general(user, phone: str, body: str, twilio_sid: str) -> None:
+    pool = get_pool()
+
+    # Create ephemeral conversation for message storage
+    conv = await pool.fetchrow(
+        """
+        INSERT INTO conversations (user_id, phone_number, status)
+        VALUES ($1, $2, 'active')
+        RETURNING *
+        """,
+        user["id"],
+        phone,
+    )
+    conv_id = conv["id"]
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            inserted = await _insert_inbound_user_message(conn, conv_id, body, twilio_sid)
+            if not inserted:
+                logger.info("Duplicate inbound message ignored for conversation=%s", conv_id)
+                await conn.execute(
+                    """
+                    UPDATE conversations
+                    SET status = 'abandoned', updated_at = NOW(), completed_at = NOW()
+                    WHERE id = $1
+                    """,
+                    conv_id,
+                )
+                return
+
+            # Check stop keywords — in general mode, just acknowledge
+            if body.lower().strip() in STOP_KEYWORDS:
+                await conn.execute(
+                    "UPDATE conversations SET status = 'abandoned', updated_at = NOW(), completed_at = NOW() WHERE id = $1",
+                    conv_id,
+                )
+                _safe_send(phone, "Understood — thanks for your time! Take care.")
+                return
+
+            conversation_history = await _load_history(conn, conv_id)
+
+    deps = MeshContext(
+        mode="general",
+        conversation_history=conversation_history,
+        user_demographics=_user_demographics(user),
+    )
+
+    agent_resp = await _call_llm(deps, conv_id)
+    if not agent_resp:
+        return
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO messages (conversation_id, sender, content) VALUES ($1, 'agent', $2)",
+                conv_id, agent_resp.message,
+            )
+            # Mark general conversation as completed after response
+            await conn.execute(
+                """
+                UPDATE conversations
+                SET status = 'completed', message_count = message_count + 2,
+                    updated_at = NOW(), completed_at = NOW()
+                WHERE id = $1
+                """,
+                conv_id,
+            )
+
+    _safe_send(phone, agent_resp.message)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+async def _load_history(conn, conv_id) -> list[dict[str, str]]:
+    msg_rows = await conn.fetch(
+        "SELECT sender, content FROM messages WHERE conversation_id = $1 ORDER BY created_at",
+        conv_id,
+    )
+    return [{"sender": m["sender"], "content": m["content"]} for m in msg_rows]
+
+
+async def _insert_inbound_user_message(conn, conv_id, body: str, twilio_sid: str) -> bool:
+    """
+    Inserts an inbound user message. Returns False when twilio_sid has already
+    been seen (idempotent duplicate webhook).
+    """
+    result = await conn.execute(
+        """
+        INSERT INTO messages (conversation_id, sender, content, twilio_sid)
+        VALUES ($1, 'user', $2, $3)
+        ON CONFLICT DO NOTHING
+        """,
+        conv_id,
+        body,
+        twilio_sid or None,
+    )
+    return result.endswith("1")
+
+
+async def _get_or_create_active_onboarding_conversation(user_id, phone: str):
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Serialize conversation creation per user to avoid duplicate active onboarding threads.
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('user:' || $1::text))",
+                str(user_id),
+            )
+            existing = await conn.fetchrow(
+                """
+                SELECT *
+                FROM conversations
+                WHERE user_id = $1
+                  AND campaign_id IS NULL
+                  AND status = 'active'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                user_id,
+            )
+            if existing:
+                return existing
+
+            return await conn.fetchrow(
+                """
+                INSERT INTO conversations (user_id, phone_number, status)
+                VALUES ($1, $2, 'active')
+                RETURNING *
+                """,
+                user_id,
+                phone,
+            )
+
+
+def _user_demographics(user) -> dict[str, Any]:
+    return {
+        "city": user["city"],
+        "neighborhood": user["neighborhood"],
+        "age_range": user["age_range"],
+        "gender": user["gender"],
+    }
+
+
+_DEMOGRAPHICS_WHITELIST = {"city", "neighborhood", "age_range", "gender"}
+
+
+async def _update_user_demographics(
+    conn, user_id, demographics: dict, current_user,
+) -> bool:
+    """Update user demographics. Returns True if user became onboarded."""
+    if not demographics:
+        return False
+
+    # Whitelist + only update non-None values
+    updates = {
+        k: v for k, v in demographics.items()
+        if v is not None and k in _DEMOGRAPHICS_WHITELIST
+    }
+    if not updates:
+        return False
+
+    # Build dynamic UPDATE (keys are guaranteed safe via whitelist)
+    set_clauses = []
+    values = []
+    for i, (key, value) in enumerate(updates.items(), start=2):
+        set_clauses.append(f"{key} = ${i}")
+        values.append(value)
+
+    await conn.execute(
+        f"UPDATE users SET {', '.join(set_clauses)} WHERE id = $1",
+        user_id, *values,
+    )
+
+    # Check if user is now fully onboarded
+    # Merge current demographics with updates
+    merged = {**_user_demographics(current_user), **updates}
+    all_filled = all(merged.get(k) for k in _REQUIRED_DEMOGRAPHICS)
+
+    if all_filled and current_user["status"] != "onboarded":
+        await conn.execute(
+            "UPDATE users SET status = 'onboarded' WHERE id = $1", user_id
+        )
+        return True
+
+    return False
+
+
+async def _call_llm(deps: MeshContext, conv_id) -> Any:
+    """Call LLM with semaphore. Returns AgentResponse or None on error."""
+    assert _llm_semaphore is not None
+    async with _llm_semaphore:
+        try:
+            return await get_agent_response(deps)
+        except Exception:
+            logger.exception("Agent failed for conversation=%s", conv_id)
+            return None
+
+
+async def _check_campaign_completion(campaign_id) -> None:
     pool = get_pool()
     row = await pool.fetchrow(
-        "SELECT total_conversations, completed_conversations FROM campaigns WHERE id = $1",
+        """
+        SELECT c.total_conversations,
+               COUNT(*) FILTER (
+                   WHERE conv.status IN ('completed', 'declined', 'abandoned', 'expired', 'failed')
+               ) AS terminal_count
+        FROM campaigns c
+        LEFT JOIN conversations conv ON conv.campaign_id = c.id
+        WHERE c.id = $1
+        GROUP BY c.id
+        """,
         campaign_id,
     )
-    if row and row["completed_conversations"] >= row["total_conversations"] > 0:
+    if row and row["terminal_count"] >= row["total_conversations"] > 0:
         await pool.execute(
             "UPDATE campaigns SET status = 'completed', updated_at = NOW() WHERE id = $1",
             campaign_id,
         )
-        logger.info("Campaign %s completed", campaign_id)
+        logger.info("Campaign %s completed (all conversations terminal)", campaign_id)
 
 
 def _safe_send(phone: str, text: str) -> None:

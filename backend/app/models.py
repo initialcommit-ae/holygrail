@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -14,6 +16,9 @@ class CreateCampaignRequest(BaseModel):
     extraction_schema: dict[str, ExtractionField]
     phone_numbers: list[str] = Field(min_length=1)
     system_prompt_override: str | None = None
+    reward_text: str | None = None
+    reward_link: str | None = None
+    targeting: dict[str, Any] | None = None  # V2 — schema-ready, not used in launch yet
 
 
 class AgentResponse(BaseModel):
@@ -22,9 +27,17 @@ class AgentResponse(BaseModel):
         default_factory=dict,
         description="New data points extracted from this exchange",
     )
+    user_demographics_update: dict = Field(
+        default_factory=dict,
+        description="Demographics extracted (city, neighborhood, age_range, gender)",
+    )
     conversation_complete: bool = Field(
         default=False,
-        description="True when all schema fields are filled",
+        description="True when all required data is collected",
+    )
+    bounty_accepted: bool | None = Field(
+        default=None,
+        description="For bounty_sent interpretation — True=accepted, False=declined, None=ambiguous",
     )
     internal_reasoning: str = Field(
         default="",
